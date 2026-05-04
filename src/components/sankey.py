@@ -1,51 +1,56 @@
 import json
 import hashlib
+from collections import defaultdict, deque
 from dash import html
 import pandas as pd
 
 
 # ---------------------------------------------------------------------------
-# Colores semánticos para balance de pérdidas de agua (acueducto)
+# Paleta base — colores raíz por rama semántica
+# Se aplican por subcadena (case-insensitive) sobre el nombre del nodo.
+# Los nodos que no coincidan heredan el color de su ancestro nivel0.
 # ---------------------------------------------------------------------------
 _COLOR_OVERRIDES = [
-    ("volumen total",     "#74c0fc"),
-    ("agua no facturada", "#f03e3e"),
-    ("no facturada",      "#f03e3e"),
-    ("agua facturada",    "#2f9e44"),
-    ("facturada",         "#2f9e44"),
-    ("real",              "#e8590c"),
-    ("física",            "#e8590c"),
-    ("fisica",            "#e8590c"),
-    ("fuga",              "#e8590c"),
-    ("rotura",            "#e8590c"),
-    ("rebose",            "#e8590c"),
-    ("aparen",            "#7048e8"),
-    ("comerc",            "#7048e8"),
-    ("hurto",             "#7048e8"),
-    ("ilegal",            "#7048e8"),
-    ("medición",          "#7048e8"),
-    ("medicion",          "#7048e8"),
-    ("no medida",         "#f59f00"),
-    ("medida",            "#1971c2"),
-    ("servicio propio",   "#0c8599"),
-    ("uso propio",        "#0c8599"),
-    ("incendio",          "#c92a2a"),
+    # Raíz
+    ("volumen total",       "#74c0fc"),   # azul agua
+
+    # nivel0 — dos grandes bloques
+    ("agua no facturada",   "#e03131"),   # rojo — pérdidas
+    ("no facturada",        "#e03131"),
+    ("agua facturada",      "#2f9e44"),   # verde — ingreso
+    ("facturada",           "#2f9e44"),
 ]
 
-_PALETTE_FALLBACK = [
+# Paleta de respaldo (nodos que no coincidan con ningún override NI tengan ancestro)
+_FALLBACK = [
     "#4dabf7", "#38d9a9", "#ff8787", "#fcc419",
     "#b197fc", "#ff922b", "#69db7c", "#f06595",
-    "#66d9e8", "#a9e34b", "#da77f2", "#ffa94d",
 ]
 
 
-def _color_for(name: str) -> str:
+def _match_override(name: str):
+    """Retorna el color del primer patrón que coincida, o None."""
     key = name.lower().strip()
     for pattern, color in _COLOR_OVERRIDES:
         if pattern in key:
             return color
-    idx = int(hashlib.md5(name.encode("utf-8")).hexdigest(), 16) % len(_PALETTE_FALLBACK)
-    return _PALETTE_FALLBACK[idx]
+    return None
+
+
+def _hash_color(name: str) -> str:
+    idx = int(hashlib.md5(name.encode("utf-8")).hexdigest(), 16) % len(_FALLBACK)
+    return _FALLBACK[idx]
+
+
+def _lighten(hex_color: str, amount: float) -> str:
+    """Aclara un color hex mezclándolo con blanco (amount ∈ [0,1])."""
+    r = int(hex_color[1:3], 16)
+    g = int(hex_color[3:5], 16)
+    b = int(hex_color[5:7], 16)
+    r = min(255, int(r + (255 - r) * amount))
+    g = min(255, int(g + (255 - g) * amount))
+    b = min(255, int(b + (255 - b) * amount))
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +61,7 @@ def generar_sankey(df):
     """
     Sankey con Apache ECharts (iframe).
     Niveles: Volumen Total → nivel0 → nivel1 → nivel2 → nivel3_cra → descripcion
+    Colores: herencia BFS desde nivel0; aclaramiento proporcional a la profundidad.
     """
     if df is None or df.empty:
         return html.Div(
@@ -74,23 +80,31 @@ def generar_sankey(df):
         if col not in df_sankey.columns:
             df_sankey[col] = "Sin " + col
 
-    # depth de cada nivel; el último recibe +2 extra → gap triple con el anterior
-    # (cada +1 duplica el espacio; +2 lo cuadruplica respecto al gap base)
+    # depth de cada nivel; último recibe +2 → gap triple con el penúltimo
     level_to_depth = {col: idx for idx, col in enumerate(columnas_niveles)}
     level_to_depth[ultimo_nivel] = len(columnas_niveles) + 1   # 5 → 7
 
-    # 1. Construir nodos y enlaces
-    nodes_seen = {}
-    nodes_list = []
-    links = []
+    # -----------------------------------------------------------------------
+    # 1. Construir nodos (con color placeholder) y enlaces
+    # -----------------------------------------------------------------------
+    nodes_seen    = {}    # name → index in nodes_list
+    nodes_list    = []
+    links         = []
+    adj           = defaultdict(list)   # source_name → [target_names]
+    has_semantic  = set()               # nodos con color semántico propio
 
     def add_node(name, level_col):
         if name not in nodes_seen:
-            nodes_seen[name] = True
+            nodes_seen[name] = len(nodes_list)
+            color = _match_override(name)
+            if color:
+                has_semantic.add(name)
+            else:
+                color = "#cccccc"       # placeholder; se reasigna en el BFS
             nodes_list.append({
                 "name":      name,
                 "depth":     level_to_depth[level_col],
-                "itemStyle": {"color": _color_for(name)}
+                "itemStyle": {"color": color}
             })
 
     for i in range(len(columnas_niveles) - 1):
@@ -107,6 +121,7 @@ def generar_sankey(df):
             tgt = str(row[destino])
             add_node(src, fuente)
             add_node(tgt, destino)
+            adj[src].append(tgt)
             links.append({"source": src, "target": tgt, "value": float(row["volumen"])})
 
     if not links:
@@ -115,11 +130,66 @@ def generar_sankey(df):
             style={"color": "#adb5bd", "textAlign": "center", "padding": "40px"}
         )
 
-    # 2. Altura: la mitad de la fórmula anterior
+    # -----------------------------------------------------------------------
+    # 2. BFS: propagar color del ancestro nivel0 a todos sus descendientes
+    #    El aclaramiento es proporcional a la profundidad relativa al nivel0.
+    # -----------------------------------------------------------------------
+    node_by_name = {n["name"]: n for n in nodes_list}
+
+    # Primero: encontrar el color del ancestro nivel0 para cada nodo
+    nivel0_ancestor = {}   # node_name → color del nivel0 que lo originó
+
+    # Sembrar con los nodos de nivel0 (depth=1)
+    queue = deque()
+    for n in nodes_list:
+        if n["depth"] == 1:
+            nivel0_ancestor[n["name"]] = n["itemStyle"]["color"]
+            queue.append(n["name"])
+
+    visited = set(nivel0_ancestor.keys())
+    while queue:
+        cur = queue.popleft()
+        anc_color = nivel0_ancestor[cur]
+        for tgt in adj[cur]:
+            if tgt not in visited:
+                nivel0_ancestor[tgt] = anc_color
+                visited.add(tgt)
+                queue.append(tgt)
+
+    # Reasignar colores: semánticos se mantienen; el resto hereda con aclaramiento
+    MAX_DEPTH = level_to_depth[ultimo_nivel]
+    for n in nodes_list:
+        if n["name"] in has_semantic:
+            continue                        # color semántico definido: se conserva
+        anc = nivel0_ancestor.get(n["name"])
+        if anc:
+            depth    = n["depth"]
+            amount   = min(0.55, (depth - 1) * 0.13)   # hasta 55 % más claro
+            n["itemStyle"]["color"] = _lighten(anc, amount)
+        else:
+            n["itemStyle"]["color"] = _hash_color(n["name"])
+
+    # -----------------------------------------------------------------------
+    # 3. Altura dinámica
+    # -----------------------------------------------------------------------
     n_ultimo = df_sankey[ultimo_nivel].dropna().nunique()
     height   = max(220, (n_ultimo * 36 + 60) // 2)
 
-    # 3. Opciones ECharts (funciones JS se inyectan después, JSON no las soporta)
+    # -----------------------------------------------------------------------
+    # 4. Opciones ECharts
+    # -----------------------------------------------------------------------
+    # levels → tamaño de fuente diferente por profundidad
+    levels_cfg = [
+        {"depth": 0, "label": {"fontSize": 12, "fontWeight": "bold"}},
+        {"depth": 1, "label": {"fontSize": 12, "fontWeight": "bold"}},
+        {"depth": 2, "label": {"fontSize": 10}},
+        {"depth": 3, "label": {"fontSize": 10}},
+        {"depth": 4, "label": {"fontSize": 10}},
+        {"depth": 5, "label": {"fontSize": 10}},
+        {"depth": 6, "label": {"fontSize": 10}},
+        {"depth": 7, "label": {"fontSize": 11}},
+    ]
+
     option = {
         "backgroundColor": "transparent",
         "tooltip": {"show": False},
@@ -127,6 +197,7 @@ def generar_sankey(df):
             "type": "sankey",
             "data": nodes_list,
             "links": links,
+            "levels": levels_cfg,
             "orient": "horizontal",
             "nodeWidth": 10,
             "nodeGap": 14,
@@ -152,7 +223,7 @@ def generar_sankey(df):
         }]
     }
 
-    # Formateador: valores numéricos → M m³ / k m³ / m³
+    # Formateador JS: truncado por nivel + valores en M/k
     js_fmt = """
 function fmtVal(v) {
     if (v >= 1e6) return (v / 1e6).toFixed(2) + ' M m\u00b3';
@@ -160,11 +231,17 @@ function fmtVal(v) {
     return v.toFixed(0) + ' m\u00b3';
 }
 option.series[0].label.formatter = function(p) {
-    return fmtVal(p.value) + '  ' + p.name;
+    var depth  = p.data ? p.data.depth : 0;
+    var name   = p.name;
+    var maxLen = (depth <= 1) ? 50 : (depth >= 7) ? 45 : 18;
+    if (name.length > maxLen) name = name.substring(0, maxLen) + '\u2026';
+    return fmtVal(p.value) + '  ' + name;
 };
 """
 
-    # 4. HTML completo para el Iframe
+    # -----------------------------------------------------------------------
+    # 5. HTML completo para el Iframe
+    # -----------------------------------------------------------------------
     html_doc = f"""<!DOCTYPE html>
 <html>
 <head>
