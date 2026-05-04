@@ -100,7 +100,7 @@ dmc.AppShell(
                             html.Div(
                                 id="contenedor-mapa",
                                 children=generar_mapa_leaflet(gdf),
-                                style={"width": "100%", "height": "50vh", "padding": "2px"}
+                                style={"width": "100%", "height": "50vh", "padding": "2px", "overflow": "hidden", "position": "relative", "zIndex": 0}
                             )
                         ], span=3, p=0)
                     ], gutter=0),

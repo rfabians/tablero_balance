@@ -29,7 +29,7 @@ def generar_mapa_leaflet(gdf):
             id="mapa-principal",
             center=[4.6097, -74.0817],
             zoom=12,
-            style={'height': '75vh', 'width': '100%', 'borderRadius': '8px', 'margin': 0, 'padding': 0}
+            style={'height': '100%', 'width': '100%', 'borderRadius': '8px', 'margin': 0, 'padding': 0}
         )
 
     # Asignamos los colores
@@ -72,7 +72,7 @@ def generar_mapa_leaflet(gdf):
         # Mantener solo bounds en la creación inicial es más seguro
         bounds=limites_mapa,
         boundsOptions={"padding": [20, 20]},
-        style={'height': '75vh', 'width': '100%', 'borderRadius': '8px', 'zIndex': 0, 'margin': 0, 'padding': 0}
+        style={'height': '100%', 'width': '100%', 'borderRadius': '8px', 'zIndex': 0, 'margin': 0, 'padding': 0}
     )
 
     return mapa
