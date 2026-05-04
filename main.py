@@ -3,54 +3,93 @@ from repositorios.obtener_datos import obtener_datos
 from components.header import crear_encabezado
 from components.mapa import generar_mapa_leaflet
 from components.sankey import generar_sankey
+from components.tabla_iwa import generar_tabla_iwa
 
 import dash_mantine_components as dmc
 from dash import Dash, html, Input, Output, dcc, ctx
 import dash
 import json
+import pandas as pd
 
-app = Dash()
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+app = Dash(__name__, suppress_callback_exceptions=True)
 
-filtro = FiltroTablero()
+# Viewport meta para soporte mobile
+app.index_string = """<!DOCTYPE html>
+<html>
+  <head>
+    {%metas%}
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>Balance Hídrico</title>
+    {%favicon%}
+    {%css%}
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, sans-serif; }
+    </style>
+  </head>
+  <body>
+    {%app_entry%}
+    <footer>
+      {%config%}
+      {%scripts%}
+      {%renderer%}
+    </footer>
+  </body>
+</html>"""
 
-df, gdf = obtener_datos(filtro)
+# ---------------------------------------------------------------------------
+# Carga inicial de datos
+# ---------------------------------------------------------------------------
+filtro_inicial = FiltroTablero()
+df, gdf = obtener_datos(filtro_inicial)
+MES_MAXIMO = max(m for m in df["mescalculo"].unique() if m != "M")
 
-filtro.mes = max(mes for mes in df['mescalculo'].unique() if mes != 'M')
+# ---------------------------------------------------------------------------
+# Helpers de negocio
+# ---------------------------------------------------------------------------
+def normalizar_lista(valor):
+    """Convierte un valor escalar o None en lista o None."""
+    if not valor:
+        return None
+    return valor if isinstance(valor, list) else [valor]
 
-def calcular_indicadores(df_datos):
-    # 1. Sumar volumen donde nivel0 == 'AGUA NO FACTURADA'
-    volumen_anf = df_datos[df_datos['nivel0'] == 'AGUA NO FACTURADA']['volumen'].sum() if 'volumen' in df_datos.columns and 'nivel0' in df_datos.columns else 0
-    
-    # Volumen Facturado
-    volumen_facturado = df_datos[df_datos['nivel0'] == 'AGUA FACTURADA']['volumen'].sum() if 'volumen' in df_datos.columns and 'nivel0' in df_datos.columns else 0
-    
-    # 2. Sumar la cantidad de suscriptores
-    if 'suscriptores' in df_datos.columns and 'sector_hidraulico' in df_datos.columns:
-        #df_unicos = df_datos.drop_duplicates(subset=['sector_hidraulico'])
-        total_suscriptores = df_datos['suscriptores'].sum()
-    else:
-        total_suscriptores = df_datos['suscriptores'].sum() if 'suscriptores' in df_datos.columns else 0
 
-    # 3. Calcular IPUF
-    if total_suscriptores > 0:
-        ipuf = volumen_anf / total_suscriptores
-    else:
-        ipuf = 0
-        
-    # Calcular Porcentaje de Pérdidas
+def fmt_volumen(v: float) -> str:
+    """Formatea un volumen en m³ con sufijo M/k para legibilidad."""
+    if v >= 1_000_000:
+        return f"{v / 1_000_000:,.2f} M"
+    if v >= 1_000:
+        return f"{v / 1_000:,.1f} k"
+    return f"{v:,.1f}"
+
+
+def calcular_indicadores(df_datos: pd.DataFrame) -> dict:
+    """Calcula KPIs globales del DataFrame filtrado."""
+    if df_datos.empty:
+        return {
+            "volumen_anf": 0, "volumen_facturado": 0,
+            "total_suscriptores": 0, "ipuf": 0,
+            "rango_ipuf": "IPUF BAJO", "porcentaje_perdidas": 0,
+        }
+
+    vol = df_datos.groupby("nivel0")["volumen"].sum()
+    volumen_anf      = vol.get("AGUA NO FACTURADA", 0)
+    volumen_facturado = vol.get("AGUA FACTURADA", 0)
+    total_suscriptores = df_datos["suscriptores"].sum() if "suscriptores" in df_datos.columns else 0
+
+    ipuf = volumen_anf / total_suscriptores if total_suscriptores > 0 else 0
     volumen_total = volumen_anf + volumen_facturado
-    if volumen_total > 0:
-        porcentaje_perdidas = (volumen_anf / volumen_total) * 100
-    else:
-        porcentaje_perdidas = 0
+    porcentaje_perdidas = (volumen_anf / volumen_total * 100) if volumen_total > 0 else 0
 
-    # 4. Determinar rango
     if ipuf < 4:
-        rango_ipuf = 'IPUF BAJO'
-    elif 4 <= ipuf <= 6:
-        rango_ipuf = 'IPUF MEDIO'
+        rango_ipuf = "IPUF BAJO"
+    elif ipuf <= 6:
+        rango_ipuf = "IPUF MEDIO"
     else:
-        rango_ipuf = 'IPUF ALTO'
+        rango_ipuf = "IPUF ALTO"
 
     return {
         "volumen_anf": volumen_anf,
@@ -58,263 +97,330 @@ def calcular_indicadores(df_datos):
         "total_suscriptores": total_suscriptores,
         "ipuf": ipuf,
         "rango_ipuf": rango_ipuf,
-        "porcentaje_perdidas": porcentaje_perdidas
+        "porcentaje_perdidas": porcentaje_perdidas,
     }
 
 
-app.layout = dmc.MantineProvider(
-dmc.AppShell(
-    header={"height": 80},  # Esto le dice al AppShell que reserve 80px de altura para el header
-    padding=0, # Eliminamos el padding global del AppShell
-    children=[
-        dcc.Store(id="store-filtros"),
-        html.Div(
-            id="contenedor-encabezado",
-            children=crear_encabezado(filtro_actual=filtro, df=df)
-        ),
-        dmc.AppShellMain(
-            children=[
-                dmc.Container([
-                    # Fila 1: Indicadores
-                    html.Div(id="contenedor-indicadores", style={"marginTop": "10px", "marginBottom": "10px"}),
-                    
-                    # Fila 2: Contenido principal dividido en 4 columnas
-                    dmc.Grid([
-                        # Columna vacía 1 (ocupa 3 de 12 espacios = 1/4)
-                        dmc.GridCol([
-                            html.Div("Espacio para futuros componentes", style={"height": "50vh", "backgroundColor": "#f8f9fa", "borderRadius": "8px", "display": "flex", "alignItems": "center", "justifyContent": "center", "color": "#adb5bd", "margin": "2px"})
-                        ], span=3, p=0),
-                        
-                        # Columna vacía 2 (ocupa 3 de 12 espacios = 1/4)
-                        dmc.GridCol([
-                            html.Div("Espacio para futuros componentes", style={"height": "50vh", "backgroundColor": "#f8f9fa", "borderRadius": "8px", "display": "flex", "alignItems": "center", "justifyContent": "center", "color": "#adb5bd", "margin": "2px"})
-                        ], span=3, p=0),
-                        
-                        # Columna vacía 3 (ocupa 3 de 12 espacios = 1/4)
-                        dmc.GridCol([
-                            html.Div("Espacio para futuros componentes", style={"height": "50vh", "backgroundColor": "#f8f9fa", "borderRadius": "8px", "display": "flex", "alignItems": "center", "justifyContent": "center", "color": "#adb5bd", "margin": "2px"})
-                        ], span=3, p=0),
-                        
-                        # Columna 4: El Mapa (ocupa 3 de 12 espacios = 1/4)
-                        dmc.GridCol([
-                            html.Div(
-                                id="contenedor-mapa",
-                                children=generar_mapa_leaflet(gdf),
-                                style={"width": "100%", "height": "50vh", "padding": "2px", "overflow": "hidden", "position": "relative", "zIndex": 0}
-                            )
-                        ], span=3, p=0)
-                    ], gutter=0),
-                    
-                    # Fila 3: Gráfico Sankey
-                    dmc.Grid([
-                        dmc.GridCol([
-                            dmc.Paper(
-                                children=[
-                                    html.Div(id="contenedor-sankey", children=generar_sankey(df))
-                                ],
-                                withBorder=True, shadow="sm", p="md", radius="md"
-                            )
-                        ], span=12, p="xs")
-                    ], style={"marginTop": "20px", "marginBottom": "40px"})
-                    
-                ], fluid=True, px=0) 
-            ]
+def calcular_rangos_por_sector(df_filtrado: pd.DataFrame) -> dict:
+    """
+    Calcula el rango IPUF para todos los sectores en una sola pasada vectorizada.
+    Reemplaza el loop O(N) anterior.
+    """
+    if df_filtrado.empty:
+        return {}
+
+    anf = (
+        df_filtrado[df_filtrado["nivel0"] == "AGUA NO FACTURADA"]
+        .groupby("sector_hidraulico")["volumen"].sum()
+    )
+    sus = df_filtrado.groupby("sector_hidraulico")["suscriptores"].sum()
+    ipuf_por_sector = (anf / sus).fillna(0)
+
+    def rango(v):
+        if v < 4:   return "IPUF BAJO"
+        if v <= 6:  return "IPUF MEDIO"
+        return "IPUF ALTO"
+
+    return {str(k): rango(v) for k, v in ipuf_por_sector.items()}
+
+
+def filtrar_df(df_base: pd.DataFrame, filtro: FiltroTablero) -> pd.DataFrame:
+    """Aplica los filtros del tablero sobre el DataFrame base."""
+    resultado = df_base
+    if filtro.mes:
+        meses = filtro.mes if isinstance(filtro.mes, list) else [filtro.mes]
+        resultado = resultado[resultado["mescalculo"].isin(meses)]
+    if filtro.aps:
+        aps_l = filtro.aps if isinstance(filtro.aps, list) else [filtro.aps]
+        resultado = resultado[resultado["aps"].isin(aps_l)]
+    if filtro.zona:
+        zonas = filtro.zona if isinstance(filtro.zona, list) else [filtro.zona]
+        resultado = resultado[resultado["zona"].isin(zonas)]
+    if filtro.sector:
+        sectores = [str(s) for s in (filtro.sector if isinstance(filtro.sector, list) else [filtro.sector])]
+        resultado = resultado[resultado["sector_hidraulico"].astype(str).isin(sectores)]
+    return resultado
+
+
+# ---------------------------------------------------------------------------
+# Componente: tarjetas KPI
+# ---------------------------------------------------------------------------
+_COLORES_PERDIDAS = {"<15": "green", "15-30": "yellow", ">30": "red"}
+
+def _color_perdidas(pct: float) -> str:
+    if pct > 30: return "red"
+    if pct > 15: return "yellow"
+    return "green"
+
+
+def tarjetas_kpi(indicadores: dict) -> dmc.SimpleGrid:
+    """Genera las 4 tarjetas de KPI con layout responsivo 2→4 columnas."""
+    def tarjeta(titulo, valor, color=None):
+        return dmc.Paper(
+            [
+                dmc.Text(titulo, c="dimmed", size="xs", fw=500),
+                dmc.Text(valor, fw=700, size="xl", c=color or "dark"),
+            ],
+            withBorder=True, shadow="xs", p="md", radius="md",
+            style={"textAlign": "center"},
         )
-    ]
-)
+
+    pct = indicadores["porcentaje_perdidas"]
+    return dmc.SimpleGrid(
+        cols={"base": 2, "sm": 4},
+        spacing="sm",
+        children=[
+            tarjeta("IPUF", f"{indicadores['ipuf']:,.2f}"),
+            tarjeta("% Pérdidas", f"{pct:,.1f}%", _color_perdidas(pct)),
+            tarjeta("Vol. Facturado (m³)", fmt_volumen(indicadores["volumen_facturado"])),
+            tarjeta("Vol. No Facturado (m³)", fmt_volumen(indicadores["volumen_anf"])),
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Componente: panel de leyenda IPUF (estático)
+# ---------------------------------------------------------------------------
+def panel_leyenda() -> html.Div:
+    def item_leyenda(color, texto):
+        return dmc.Group([
+            html.Div(style={
+                "width": 12, "height": 12, "borderRadius": 2,
+                "backgroundColor": color, "flexShrink": 0,
+            }),
+            dmc.Text(texto, size="xs"),
+        ], gap="xs", align="center")
+
+    return html.Div([
+        dmc.Text("Leyenda del mapa", fw=700, size="xs", mb=4),
+        dmc.Group([
+            item_leyenda("#22c55e", "IPUF Bajo  (< 4)"),
+            item_leyenda("#eab308", "IPUF Medio (4–6)"),
+            item_leyenda("#ef4444", "IPUF Alto  (> 6)"),
+        ], gap="md"),
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Layout
+# ---------------------------------------------------------------------------
+app.layout = dmc.MantineProvider(
+    dmc.AppShell(
+        header={"height": 80},
+        padding=0,
+        children=[
+            dcc.Store(id="store-filtros"),
+            html.Div(
+                id="contenedor-encabezado",
+                children=crear_encabezado(filtro_actual=filtro_inicial, df=df),
+            ),
+            dmc.AppShellMain(
+                children=[
+                    dmc.Container(
+                        fluid=True,
+                        px="md",
+                        py="sm",
+                        children=[
+                            # ── Fila 1: KPIs ──────────────────────────────
+                            dcc.Loading(
+                                id="loading-kpi",
+                                type="dot",
+                                color="#228be6",
+                                children=html.Div(
+                                    id="contenedor-indicadores",
+                                    style={"marginBottom": "12px"},
+                                ),
+                            ),
+
+                            # ── Fila 2: Mapa (50%) + Panel derecho (50%) ──
+                            dmc.Grid(
+                                gutter="sm",
+                                children=[
+                                    # Mapa — la mitad del ancho
+                                    dmc.GridCol(
+                                        html.Div(
+                                            id="contenedor-mapa",
+                                            children=generar_mapa_leaflet(gdf),
+                                            style={
+                                                "width": "100%", "height": "55vh",
+                                                "overflow": "hidden",
+                                                "position": "relative", "zIndex": 0,
+                                            },
+                                        ),
+                                        span={"base": 12, "sm": 4},
+                                    ),
+                                    # Panel derecho: leyenda + tabla IWA
+                                    dmc.GridCol(
+                                        dmc.Paper(
+                                            [
+                                                panel_leyenda(),
+                                                dmc.Divider(my="sm"),
+                                                dmc.Text(
+                                                    "Balance Hídrico IWA",
+                                                    fw=700, size="sm", mb="xs",
+                                                ),
+                                                html.Div(
+                                                    id="contenedor-tabla-iwa",
+                                                    children=generar_tabla_iwa(df),
+                                                ),
+                                            ],
+                                            withBorder=True, shadow="xs",
+                                            p="sm", radius="md",
+                                            style={"heinght": "45vh", "overflow": "auto"},
+                                        ),
+                                        span={"base": 12, "sm": 8},
+                                    ),
+                                ],
+                            ),
+
+                            # ── Fila 3: Sankey ────────────────────────────
+                            dmc.Paper(
+                                dcc.Loading(
+                                    id="loading-sankey",
+                                    type="dot",
+                                    color="#228be6",
+                                    children=html.Div(id="contenedor-sankey",
+                                                      children=generar_sankey(df)),
+                                ),
+                                withBorder=True, shadow="sm",
+                                p="md", radius="md",
+                                mt="sm", mb="xl",
+                            ),
+                        ],
+                    )
+                ]
+            ),
+        ],
+    )
 )
 
 
+# ---------------------------------------------------------------------------
+# Callbacks
+# ---------------------------------------------------------------------------
 @app.callback(
     Output("tooltip-mapa", "children"),
-    [Input("capa-sectores-leaflet", "hoverData")],
-    prevent_initial_call=True
+    Input("capa-sectores-leaflet", "hoverData"),
+    prevent_initial_call=True,
 )
-def mostrar_tooltip(hoverData):
-    if hoverData:
-        nombre = hoverData.get('properties', {}).get('name', 'Sector desconocido')
+def mostrar_tooltip(hover_data):
+    if hover_data:
+        nombre = hover_data.get("properties", {}).get("name", "Sector desconocido")
         return f"Sector: {nombre}"
     return dash.no_update
+
 
 @app.callback(
     Output("store-filtros", "data"),
     Output("contenedor-encabezado", "children"),
-    Output("mapa-principal", "viewport"), 
-    Output("capa-sectores-leaflet", "data"), 
+    Output("mapa-principal", "viewport"),
+    Output("capa-sectores-leaflet", "data"),
     Output("contenedor-indicadores", "children"),
+    Output("contenedor-tabla-iwa", "children"),
     Output("contenedor-sankey", "children"),
-    [
-        Input("filtro-mes", "value"),
-        Input("filtro-aps", "value"),
-        Input("filtro-zona", "value"),
-        Input("filtro-sector", "value"),
-        Input("btn-limpiar-filtros", "n_clicks"),
-        Input("capa-sectores-leaflet", "clickData")
-    ],
-    prevent_initial_call=False
+    Input("filtro-mes", "value"),
+    Input("filtro-aps", "value"),
+    Input("filtro-zona", "value"),
+    Input("filtro-sector", "value"),
+    Input("btn-limpiar-filtros", "n_clicks"),
+    Input("capa-sectores-leaflet", "clickData"),
+    prevent_initial_call=False,
 )
-def actualizar_tablero(mes, aps, zona, sector, n_clicks, click_feature):
-    def normalizar_lista(valor):
-        if not valor: return None
-        return valor if isinstance(valor, list) else [valor]
-
+def actualizar_tablero(mes, aps, zona, sector, _n_clicks, click_feature):
     trigger = ctx.triggered_id
-    
+
+    # ── Construir nuevo filtro ────────────────────────────────────────────
     if trigger == "btn-limpiar-filtros":
-        nuevo_filtro = FiltroTablero(
-            mes=normalizar_lista(max(m for m in df['mescalculo'].unique() if m != 'M')),
-            aps=None,
-            zona=None,
-            sector=None
-        )
+        nuevo_filtro = FiltroTablero(mes=normalizar_lista(MES_MAXIMO))
     else:
         if trigger == "capa-sectores-leaflet" and click_feature:
-            sector_seleccionado = click_feature.get('properties', {}).get('name')
-            if sector_seleccionado:
-                sector = str(sector_seleccionado)
-        
+            nombre_sector = click_feature.get("properties", {}).get("name")
+            if nombre_sector:
+                sector = str(nombre_sector)
+
         nuevo_filtro = FiltroTablero(
-            mes=normalizar_lista(mes) if mes else normalizar_lista(max(m for m in df['mescalculo'].unique() if m != 'M')),
+            mes=normalizar_lista(mes) if mes else normalizar_lista(MES_MAXIMO),
             aps=normalizar_lista(aps),
             zona=normalizar_lista(zona),
-            sector=normalizar_lista(sector)
+            sector=normalizar_lista(sector),
         )
 
-        if (trigger == "filtro-sector" or trigger == "capa-sectores-leaflet") and sector:
-            df_sector = df[df['sector_hidraulico'].astype(str) == str(sector)]
-            if not df_sector.empty:
-                zona_del_sector = df_sector['zona'].iloc[0]
-                aps_del_sector = df_sector['aps'].iloc[0]
-                if zona_del_sector and zona_del_sector != 'M':
-                    nuevo_filtro.zona = normalizar_lista(zona_del_sector)
-                if aps_del_sector and aps_del_sector != 'M':
-                    nuevo_filtro.aps = normalizar_lista(aps_del_sector)
+        # Validaciones cruzadas de filtros
+        if trigger in ("filtro-sector", "capa-sectores-leaflet") and sector:
+            df_sec = df[df["sector_hidraulico"].astype(str) == str(sector)]
+            if not df_sec.empty:
+                z = df_sec["zona"].iloc[0]
+                a = df_sec["aps"].iloc[0]
+                if z and z != "M":
+                    nuevo_filtro.zona = normalizar_lista(z)
+                if a and a != "M":
+                    nuevo_filtro.aps = normalizar_lista(a)
+
         elif trigger == "filtro-zona" and zona:
-            if sector: 
-                df_validacion = df[(df['zona'] == zona) & (df['sector_hidraulico'].astype(str) == str(sector))]
-                if df_validacion.empty:
-                    nuevo_filtro.sector = None 
-            
-            if aps:
-                df_validacion_aps = df[(df['zona'] == zona) & (df['aps'] == aps)]
-                if df_validacion_aps.empty:
-                    nuevo_filtro.aps = None
+            if sector and df[(df["zona"] == zona) & (df["sector_hidraulico"].astype(str) == str(sector))].empty:
+                nuevo_filtro.sector = None
+            if aps and df[(df["zona"] == zona) & (df["aps"] == aps)].empty:
+                nuevo_filtro.aps = None
 
         elif trigger == "filtro-aps" and aps:
-             if zona: 
-                df_validacion_zona = df[(df['aps'] == aps) & (df['zona'] == zona)]
-                if df_validacion_zona.empty:
-                    nuevo_filtro.zona = None
-                    nuevo_filtro.sector = None
-             if sector:
-                df_validacion_sec = df[(df['aps'] == aps) & (df['sector_hidraulico'].astype(str) == str(sector))]
-                if df_validacion_sec.empty:
-                    nuevo_filtro.sector = None
-                
-    pnuevo_encabezado_visual = crear_encabezado(filtro_actual=nuevo_filtro, df=df)
-    datos_para_store = f"Filtros actuales instanciados: {nuevo_filtro}"
-    
-    # 1. Filtrar los datos
-    df_filtrado = df.copy()
-    if nuevo_filtro.mes:
-        meses = nuevo_filtro.mes if isinstance(nuevo_filtro.mes, list) else [nuevo_filtro.mes]
-        df_filtrado = df_filtrado[df_filtrado['mescalculo'].isin(meses)]
-    if nuevo_filtro.aps:
-        aps_list = nuevo_filtro.aps if isinstance(nuevo_filtro.aps, list) else [nuevo_filtro.aps]
-        df_filtrado = df_filtrado[df_filtrado['aps'].isin(aps_list)]
-    if nuevo_filtro.zona:
-        zonas = nuevo_filtro.zona if isinstance(nuevo_filtro.zona, list) else [nuevo_filtro.zona]
-        df_filtrado = df_filtrado[df_filtrado['zona'].isin(zonas)]
-    if nuevo_filtro.sector:
-        sectores = nuevo_filtro.sector if isinstance(nuevo_filtro.sector, list) else [nuevo_filtro.sector]
-        sectores_str = [str(s) for s in sectores]
-        df_filtrado = df_filtrado[df_filtrado['sector_hidraulico'].astype(str).isin(sectores_str)]
+            if zona and df[(df["aps"] == aps) & (df["zona"] == zona)].empty:
+                nuevo_filtro.zona = None
+                nuevo_filtro.sector = None
+            if sector and df[(df["aps"] == aps) & (df["sector_hidraulico"].astype(str) == str(sector))].empty:
+                nuevo_filtro.sector = None
 
-    # 2. Calcular los indicadores con los datos filtrados
+    # ── Filtrar datos ────────────────────────────────────────────────────
+    df_filtrado = filtrar_df(df, nuevo_filtro)
+
+    # ── KPIs ─────────────────────────────────────────────────────────────
     indicadores = calcular_indicadores(df_filtrado)
-    
-    # Creamos un componente visual para mostrar los indicadores (facturado y no facturado)
-    tarjetas_indicadores = dmc.Group([
-        dmc.Paper(
-            children=[
-                dmc.Text("IPUF", c="dimmed", size="xs"),
-                dmc.Text(f"{indicadores['ipuf']:,.2f}", fw=700, size="xl")
-            ],
-            withBorder=True, shadow="sm", p="md", radius="md", style={"flex": 1, "textAlign": "center", "margin": "0 5px"}
-        ),
-        dmc.Paper(
-            children=[
-                dmc.Text("% Pérdidas", c="dimmed", size="xs"),
-                dmc.Text(f"{indicadores['porcentaje_perdidas']:,.2f}%", fw=700, size="xl", c="red" if indicadores['porcentaje_perdidas'] > 30 else "yellow" if indicadores['porcentaje_perdidas'] > 15 else "green")
-            ],
-            withBorder=True, shadow="sm", p="md", radius="md", style={"flex": 1, "textAlign": "center", "margin": "0 5px"}
-        ),
-        dmc.Paper(
-            children=[
-                dmc.Text("Volumen Facturado (m3)", c="dimmed", size="xs"),
-                dmc.Text(f"{indicadores['volumen_facturado']:,.2f}", fw=700, size="xl")
-            ],
-            withBorder=True, shadow="sm", p="md", radius="md", style={"flex": 1, "textAlign": "center", "margin": "0 5px"}
-        ),
-        dmc.Paper(
-            children=[
-                dmc.Text("Volumen No Facturado (m3)", c="dimmed", size="xs"),
-                dmc.Text(f"{indicadores['volumen_anf']:,.2f}", fw=700, size="xl")
-            ],
-            withBorder=True, shadow="sm", p="md", radius="md", style={"flex": 1, "textAlign": "center", "margin": "0 5px"}
-        )
-    ], grow=True)
+    kpis = tarjetas_kpi(indicadores)
 
-    # 3. Filtrar gdf para el mapa
-    sectores_filtrados = [str(s) for s in df_filtrado['sector_hidraulico'].unique() if s != 'M']
-    
-    # Asignar color al mapa calculando el IPUF por cada sector individual
-    mapa_colores = {
-        'IPUF BAJO': '#22c55e',  # Verde
-        'IPUF MEDIO': '#eab308',  # Amarillo
-        'IPUF ALTO': '#ef4444'  # Rojo
-    }
-    
-    if not df_filtrado.empty and 'sector_hidraulico' in df_filtrado.columns and not gdf.empty:
-        # Hacemos una copia solo de los sectores que están en la lista
-        gdf_filtrado = gdf[gdf['name'].astype(str).isin(sectores_filtrados)].copy()
-        
+    # ── GeoJSON + viewport ───────────────────────────────────────────────
+    MAPA_COLORES = {"IPUF BAJO": "#22c55e", "IPUF MEDIO": "#eab308", "IPUF ALTO": "#ef4444"}
+    sectores_filtrados = [
+        str(s) for s in df_filtrado["sector_hidraulico"].unique() if s != "M"
+    ]
+
+    datos_geojson = {"type": "FeatureCollection", "features": []}
+    nuevo_viewport = dash.no_update
+
+    if not df_filtrado.empty and not gdf.empty:
+        gdf_filtrado = gdf[gdf["name"].astype(str).isin(sectores_filtrados)].copy()
+
         if not gdf_filtrado.empty:
-            rangos_por_sector = {}
-            for sector_id in sectores_filtrados:
-                df_sec = df_filtrado[df_filtrado['sector_hidraulico'].astype(str) == sector_id]
-                ind_sec = calcular_indicadores(df_sec)
-                rangos_por_sector[sector_id] = ind_sec['rango_ipuf']
-                
-            gdf_filtrado['categoria_perdidas'] = gdf_filtrado['name'].astype(str).map(rangos_por_sector)
-            gdf_filtrado['color_hex'] = gdf_filtrado['categoria_perdidas'].map(mapa_colores)
-            gdf_filtrado['color_hex'] = gdf_filtrado['color_hex'].fillna('#9ca3af')
-            
+            # Cálculo vectorizado de IPUF por sector (sin loop)
+            rangos = calcular_rangos_por_sector(df_filtrado)
+            gdf_filtrado["categoria_perdidas"] = gdf_filtrado["name"].astype(str).map(rangos)
+            gdf_filtrado["color_hex"] = (
+                gdf_filtrado["categoria_perdidas"].map(MAPA_COLORES).fillna("#9ca3af")
+            )
+
             minx, miny, maxx, maxy = gdf_filtrado.total_bounds
-            if minx == maxx and miny == maxy:
-                limites_mapa = [[float(miny) - 0.01, float(minx) - 0.01], [float(maxy) + 0.01, float(maxx) + 0.01]]
-            else:
-                limites_mapa = [[float(miny), float(minx)], [float(maxy), float(maxx)]]
-                
-            nuevo_viewport = dict(bounds=limites_mapa, transition="flyTo", options={"padding": [20, 20]})
+            padding = 0.01 if minx == maxx and miny == maxy else 0
+            limites = [
+                [float(miny) - padding, float(minx) - padding],
+                [float(maxy) + padding, float(maxx) + padding],
+            ]
+            nuevo_viewport = {"bounds": limites, "transition": "flyTo",
+                              "options": {"padding": [20, 20]}}
             datos_geojson = json.loads(gdf_filtrado.to_json())
         else:
             datos_geojson = json.loads(gdf.iloc[0:0].to_json())
-            nuevo_viewport = dash.no_update
-    else:
-        # Si df_filtrado está vacío, mandamos un geojson vacío
-        datos_geojson = json.loads(gdf.iloc[0:0].to_json()) if not gdf.empty else {"type": "FeatureCollection", "features": []}
-        nuevo_viewport = dash.no_update 
-        
-    # 4. Generar el Sankey con los datos filtrados
-    sankey_chart = generar_sankey(df_filtrado)
-    
-    return datos_para_store, pnuevo_encabezado_visual, nuevo_viewport, datos_geojson, tarjetas_indicadores, sankey_chart
+
+    return (
+        str(nuevo_filtro),
+        crear_encabezado(filtro_actual=nuevo_filtro, df=df),
+        nuevo_viewport,
+        datos_geojson,
+        kpis,
+        generar_tabla_iwa(df_filtrado),
+        generar_sankey(df_filtrado),
+    )
 
 
+# Expuesto para gunicorn: gunicorn main:server
+server = app.server
 
-
-if __name__ == '__main__':
-    filtro = FiltroTablero()
-    obtener_datos(filtro)
+if __name__ == "__main__":
     app.run(debug=True)

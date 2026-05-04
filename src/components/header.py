@@ -1,4 +1,3 @@
-# components/header.py
 import dash_mantine_components as dmc
 import pandas as pd
 from dash import html
@@ -7,146 +6,165 @@ from dash_iconify import DashIconify
 from models import FiltrosTablero
 
 
-def crear_encabezado(filtro_actual: FiltrosTablero,
-                     df: pd.DataFrame,
-                     titulo="Balance Hídrico", color_fondo="#001529"):
-    """
-    Retorna el componente AppShellHeader configurado.
-    """
-    print(f'Filtro Actual {filtro_actual.__dict__}')
-    
-    def get_val(val):
-        if isinstance(val, list):
-            return val[0] if len(val) > 0 else None
-        return val
+_LOGO_URL = (
+    "https://www.acueducto.com.co/wps/portal/EAB2/Home/inicio/!ut/p/z1/"
+    "hY5BCsIwEEXP4iLb5pugqLtUpCKiVARrNhJrrJG2KWlqr2_AlVBxYBbz581j"
+    "qKQZlbV6mUJ5Y2tVhvksp5dpusR4BrZDegDSdL7nCT-yZMPp6R8gwxo_SiDc"
+    "ywFEID6wmAPJng0CX44NlUVpr593RX3ls4JKp-_aaRd1LsQP75t2QUDQ932k8"
+    "k7futzbKLdV6JA2LUFjnVclwUrEjGBtK01gapMbO-R92NbTbEhHmyrDc1K-tm"
+    "I0egOHroG0/images/logo-acueducto-2021.png"
+)
 
-    # Filtrar el DataFrame según los valores actuales del filtro
-    df_filtrado = df.copy()
+
+def _get_val(val):
+    """Extrae el primer elemento si es lista, o devuelve el valor directo."""
+    if isinstance(val, list):
+        return val[0] if val else None
+    return val
+
+
+def _opciones_filtro(df_filtrado: pd.DataFrame, columna: str, valor_actual) -> list:
+    """
+    Devuelve opciones únicas de una columna (sin 'M'),
+    garantizando que el valor actualmente seleccionado esté incluido.
+    """
+    opciones = sorted(str(v) for v in df_filtrado[columna].unique() if v != "M")
+    val = _get_val(valor_actual)
+    if val and val != "M" and val not in opciones:
+        opciones.append(val)
+    return opciones
+
+
+def crear_encabezado(
+    filtro_actual: FiltrosTablero,
+    df: pd.DataFrame,
+    titulo: str = "Balance Hídrico",
+    color_fondo: str = "#001529",
+) -> dmc.AppShellHeader:
+    """Retorna el AppShellHeader con filtros y branding de EAAB."""
+
+    # Aplicar filtros activos para calcular opciones disponibles
+    df_fil = df
     if filtro_actual.mes:
         meses = filtro_actual.mes if isinstance(filtro_actual.mes, list) else [filtro_actual.mes]
-        df_filtrado = df_filtrado[df_filtrado['mescalculo'].isin(meses)]
+        df_fil = df_fil[df_fil["mescalculo"].isin(meses)]
     if filtro_actual.aps:
-        aps = filtro_actual.aps if isinstance(filtro_actual.aps, list) else [filtro_actual.aps]
-        df_filtrado = df_filtrado[df_filtrado['aps'].isin(aps)]
+        aps_l = filtro_actual.aps if isinstance(filtro_actual.aps, list) else [filtro_actual.aps]
+        df_fil = df_fil[df_fil["aps"].isin(aps_l)]
     if filtro_actual.zona:
         zonas = filtro_actual.zona if isinstance(filtro_actual.zona, list) else [filtro_actual.zona]
-        df_filtrado = df_filtrado[df_filtrado['zona'].isin(zonas)]
+        df_fil = df_fil[df_fil["zona"].isin(zonas)]
     if filtro_actual.sector:
-        sectores = filtro_actual.sector if isinstance(filtro_actual.sector, list) else [filtro_actual.sector]
-        sectores_str = [str(s) for s in sectores]
-        df_filtrado = df_filtrado[df_filtrado['sector_hidraulico'].astype(str).isin(sectores_str)]
-    
-    # Calcular las opciones disponibles basadas en los datos filtrados
-    # Nota: Si el usuario borra un filtro, queremos que todas las opciones originales 
-    # vuelvan a estar disponibles si están dentro de los otros filtros.
-    # Por eso aplicamos los filtros y luego tomamos los valores únicos de df_filtrado.
+        sectores = [str(s) for s in (
+            filtro_actual.sector if isinstance(filtro_actual.sector, list) else [filtro_actual.sector]
+        )]
+        df_fil = df_fil[df_fil["sector_hidraulico"].astype(str).isin(sectores)]
 
-    meses_opciones = [mes for mes in df_filtrado['mescalculo'].unique() if mes != 'M']
-    aps_opciones = [aps for aps in df_filtrado['aps'].unique() if aps != 'M']
-    zonas_opciones = [zona for zona in df_filtrado['zona'].unique() if zona != 'M']
-    sectores_opciones = [str(sector) for sector in df_filtrado['sector_hidraulico'].unique() if sector != 'M']
+    meses_opc    = _opciones_filtro(df_fil, "mescalculo", filtro_actual.mes)
+    aps_opc      = _opciones_filtro(df_fil, "aps",        filtro_actual.aps)
+    zonas_opc    = _opciones_filtro(df_fil, "zona",       filtro_actual.zona)
+    sectores_opc = _opciones_filtro(
+        df_fil.assign(sector_hidraulico=df_fil["sector_hidraulico"].astype(str)),
+        "sector_hidraulico", filtro_actual.sector,
+    )
 
-    # Si hay un valor seleccionado que ya no es válido, se sigue mostrando como opción
-    # para evitar problemas de UI, pero normalmente esto se maneja deseleccionando o
-    # simplemente actualizando el selector. Aquí agregaremos la opción seleccionada 
-    # si no está para que no crashee si cambias un filtro padre.
-    
-    def ensure_val_in_options(val, options):
-        if val is not None and val not in options and val != 'M':
-            options.append(val)
-        return options
+    select_style = {"minWidth": 130, "maxWidth": 190, "flex": "1 1 130px"}
 
-    meses_opciones = ensure_val_in_options(get_val(filtro_actual.mes), meses_opciones)
-    aps_opciones = ensure_val_in_options(get_val(filtro_actual.aps), aps_opciones)
-    zonas_opciones = ensure_val_in_options(get_val(filtro_actual.zona), zonas_opciones)
-    sectores_opciones = ensure_val_in_options(get_val(filtro_actual.sector), sectores_opciones)
-
+    filtros = dmc.Group(
+        gap="xs",
+        wrap="nowrap",
+        children=[
+            dmc.Select(
+                id="filtro-mes",
+                placeholder="Mes",
+                clearable=False,
+                allowDeselect=False,
+                value=_get_val(filtro_actual.mes),
+                data=meses_opc,
+                size="sm", variant="filled", radius="md",
+                style=select_style,
+            ),
+            dmc.Select(
+                id="filtro-aps",
+                placeholder="APS",
+                clearable=True,
+                value=_get_val(filtro_actual.aps),
+                data=aps_opc,
+                size="sm", variant="filled", radius="md",
+                style=select_style,
+            ),
+            dmc.Select(
+                id="filtro-zona",
+                placeholder="Zona",
+                clearable=True,
+                value=_get_val(filtro_actual.zona),
+                data=zonas_opc,
+                size="sm", variant="filled", radius="md",
+                style=select_style,
+            ),
+            dmc.Select(
+                id="filtro-sector",
+                placeholder="Sector",
+                clearable=True,
+                value=_get_val(filtro_actual.sector),
+                data=sectores_opc,
+                size="sm", variant="filled", radius="md",
+                style=select_style,
+            ),
+            dmc.Button(
+                "Limpiar",
+                id="btn-limpiar-filtros",
+                variant="white",
+                color="dark",
+                size="xs",
+                leftSection=DashIconify(icon="tabler:filter-cancel", height=16, color=color_fondo),
+                style={"flexShrink": 0},
+            ),
+        ],
+    )
 
     return dmc.AppShellHeader(
         dmc.Group(
-            [
-                dmc.Group([
-                    html.Img(
-                        src="https://www.acueducto.com.co/wps/portal/EAB2/Home/inicio/!ut/p/z1/hY5BCsIwEEXP4iLb5pugqLtUpCKiVARrNhJrrJG2KWlqr2_AlVBxYBbz581jqKQZlbV6mUJ5Y2tVhvksp5dpusR4BrZDegDSdL7nCT-yZMPp6R8gwxo_SiDcywFEID6wmAPJng0CX44NlUVpr593RX3ls4JKp-_aaRd1LsQP75t2QUDQ932k8k7futzbKLdV6JA2LUFjnVclwUrEjGBtK01gapMbO-R92NbTbEhHmyrDc1K-tmI0egOHroG0/images/logo-acueducto-2021.png",
-                        style={"height": "40px", "width": "auto"}
-                        # Ajustamos la altura para que encaje en los 60px del header
-                    ),
-                    dmc.Stack([
-                        dmc.Text(titulo, c="white", fw=700, size="md"),
-                        dmc.Text('Gerencia Corporativa Analítica y Pérdidas', c="white", fw=300, size="sm"),
-                        dmc.Text('Dirección Analítica', c="white", fw=300, size="sm"),
-                    ],
-                        align="start",
-                        gap=2,
-                    ),
-                ],
-                    align="center",
-                ),
-                dmc.Group(
-                    [
-                        dmc.Select(
-                            id="filtro-mes",
-                            placeholder="Mes Calculo",
-                            clearable=False,
-                            allowDeselect=False,
-                            value=get_val(filtro_actual.mes),
-                            data=sorted(meses_opciones),
-                            w=180,
-                            size="sm",
-                            variant="filled",
-                            radius="md"
-                        ),
-                        dmc.Select(
-                            id="filtro-aps",
-                            placeholder="APS",
-                            clearable=True,
-                            value=get_val(filtro_actual.aps),
-                            data=sorted(aps_opciones),
-                            w=180,
-                            size="sm",
-                            variant="filled",
-                            radius="md"
-                        ),
-                        dmc.Select(
-                            id="filtro-zona",
-                            placeholder="Zona",
-                            clearable=True,
-                            value=get_val(filtro_actual.zona),
-                            data=sorted(zonas_opciones),
-                            w=180,
-                            size="sm",
-                            variant="filled",
-                            radius="md"
-                        ),
-                        dmc.Select(
-                            id="filtro-sector",
-                            placeholder="Sector",
-                            clearable=True,
-                            value=get_val(filtro_actual.sector),
-                            data=sorted(sectores_opciones),
-                            w=180,
-                            size="sm",
-                            variant="filled",
-                            radius="md"
-                        ),
-                        dmc.Button(
-                            "Limpiar",
-                            id="btn-limpiar-filtros",
-                            variant="white",
-                            color="dark",
-                            size="xs",
-                            leftSection=DashIconify(icon="tabler:filter-cancel", height=30, color=color_fondo)
-                        ),
-                    ],
-                    gap="md",
-                ),
-            ],
             justify="space-between",
             align="center",
             h="100%",
-            px="xl",
+            px="md",
+            wrap="nowrap",
+            children=[
+                # Branding (nunca se encoge en mobile)
+                dmc.Group(
+                    gap="sm",
+                    align="center",
+                    wrap="nowrap",
+                    style={"flexShrink": 0},
+                    children=[
+                        html.Img(src=_LOGO_URL, style={"height": 38, "width": "auto"}),
+                        dmc.Stack(
+                            gap=1,
+                            align="flex-start",
+                            children=[
+                                dmc.Text(titulo, c="white", fw=700, size="md"),
+                                # Subtítulo oculto en mobile para ahorrar espacio
+                                dmc.Text(
+                                    "Gerencia Corporativa Analítica y Pérdidas",
+                                    c="white", fw=300, size="xs",
+                                    visibleFrom="sm",
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                # Filtros: scroll horizontal en mobile, inline en desktop
+                dmc.ScrollArea(
+                    type="never",
+                    style={"flex": 1, "minWidth": 0},
+                    children=html.Div(
+                        filtros,
+                        style={"paddingLeft": 10, "paddingRight": 4},
+                    ),
+                ),
+            ],
         ),
         bg=color_fondo,
-        # Se elimina position fixed para que dmc.AppShell maneje el layout automáticamente
-        style={"borderBottom": "none"}
+        style={"borderBottom": "none"},
     )
