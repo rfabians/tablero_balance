@@ -29,7 +29,7 @@ def generar_mapa_leaflet(gdf):
             id="mapa-principal",
             center=[4.6097, -74.0817],
             zoom=12,
-            style={'height': '75vh', 'width': '100%', 'borderRadius': '8px'}
+            style={'height': '75vh', 'width': '100%', 'borderRadius': '8px', 'margin': 0, 'padding': 0}
         )
 
     # Asignamos los colores
@@ -67,13 +67,12 @@ def generar_mapa_leaflet(gdf):
             )
         ],
         id="mapa-principal",
-        # REGLA ORO DE LEAFLET: Todo mapa necesita un center y zoom explícito al iniciar
-        # Aún si usas bounds o viewport.
         center=[4.6097, -74.0817],
-        zoom=11,
+        zoom=12,
         # Mantener solo bounds en la creación inicial es más seguro
         bounds=limites_mapa,
-        style={'height': '75vh', 'width': '100%', 'borderRadius': '8px', 'zIndex': 0}
+        boundsOptions={"padding": [20, 20]},
+        style={'height': '75vh', 'width': '100%', 'borderRadius': '8px', 'zIndex': 0, 'margin': 0, 'padding': 0}
     )
 
     return mapa
