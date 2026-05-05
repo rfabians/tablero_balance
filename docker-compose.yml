@@ -1,0 +1,10 @@
+services:
+
+  app:
+    build: .
+    container_name: tablero_balance_app
+    restart: unless-stopped
+    ports:
+      - "8050:8050"
+    env_file:
+      - .env
