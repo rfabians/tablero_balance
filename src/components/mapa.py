@@ -4,10 +4,10 @@ from dash_extensions.javascript import assign
 
 estilo_poligonos = assign("""function(feature, context){
     return {
-        fillColor: feature.properties.color_hex, 
-        color: "white",       // Borde del polígono
-        weight: 1.5,          // Grosor del borde
-        fillOpacity: 0.6      // Transparencia (0 a 1)
+        fillColor: feature.properties.color_hex,
+        color: "#FFFFFF",
+        weight: 1.5,
+        fillOpacity: 0.72
     };
 }""")
 
@@ -15,64 +15,72 @@ estilo_poligonos = assign("""function(feature, context){
 def generar_mapa_leaflet(gdf):
     """
     Recibe un GeoDataFrame, asigna colores categóricos y retorna un mapa de Leaflet centrado.
+    Estilo WinUI claro — tiles claros con sectores coloreados en verde/naranja/rojo.
     """
     mapa_colores = {
-        'IPUF BAJO': '#22c55e',  # Verde
-        'IPUF MEDIO': '#eab308',  # Amarillo
-        'IPUF ALTO': '#ef4444'  # Rojo
+        'IPUF BAJO':  '#107C10',  # Verde WinUI
+        'IPUF MEDIO': '#FF8C00',  # Naranja WinUI
+        'IPUF ALTO':  '#C50F1F',  # Rojo WinUI
+    }
+
+    tile_url = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+    tile_attr = (
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> '
+        '&copy; <a href="https://carto.com/attributions">CARTO</a>'
+    )
+
+    map_style = {
+        'height': '100%', 'width': '100%',
+        'borderRadius': '10px', 'zIndex': 0,
+        'margin': 0, 'padding': 0,
     }
 
     if gdf is None or gdf.empty:
-        # Fallback explícito seguro
         return dl.Map(
-            [dl.TileLayer()],
+            [dl.TileLayer(url=tile_url, attribution=tile_attr)],
             id="mapa-principal",
             center=[4.6097, -74.0817],
             zoom=12,
-            style={'height': '100%', 'width': '100%', 'borderRadius': '8px', 'margin': 0, 'padding': 0}
+            style=map_style,
         )
 
-    # Asignamos los colores
     if 'categoria_perdidas' in gdf.columns:
         gdf['color_hex'] = gdf['categoria_perdidas'].map(mapa_colores)
     else:
         gdf['color_hex'] = None
-        
-    gdf['color_hex'] = gdf['color_hex'].fillna('#9ca3af')
+
+    gdf['color_hex'] = gdf['color_hex'].fillna('#9CA3AF')
 
     minx, miny, maxx, maxy = gdf.total_bounds
-    
-    # Prevenir errores si se filtra a un solo punto o geometrías sin área
+
     if minx == maxx and miny == maxy:
-        limites_mapa = [[float(miny) - 0.01, float(minx) - 0.01], [float(maxy) + 0.01, float(maxx) + 0.01]]
+        limites_mapa = [
+            [float(miny) - 0.01, float(minx) - 0.01],
+            [float(maxy) + 0.01, float(maxx) + 0.01],
+        ]
     else:
-        limites_mapa = [[float(miny), float(minx)], [float(maxy), float(maxx)]]
+        limites_mapa = [
+            [float(miny), float(minx)],
+            [float(maxy), float(maxx)],
+        ]
 
     datos_geojson = json.loads(gdf.to_json())
 
-    mapa = dl.Map(
+    return dl.Map(
         [
-            dl.TileLayer(
-                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            ),
+            dl.TileLayer(url=tile_url, attribution=tile_attr),
             dl.GeoJSON(
                 data=datos_geojson,
-                options=dict(
-                    style=estilo_poligonos
-                ),
-                hoverStyle=dict(weight=3, color='#666', dashArray=''),
+                options=dict(style=estilo_poligonos),
+                hoverStyle=dict(weight=3, color='#0078D4', dashArray=''),
                 id="capa-sectores-leaflet",
-                children=[dl.Tooltip(id="tooltip-mapa")] 
-            )
+                children=[dl.Tooltip(id="tooltip-mapa")],
+            ),
         ],
         id="mapa-principal",
         center=[4.6097, -74.0817],
         zoom=12,
-        # Mantener solo bounds en la creación inicial es más seguro
         bounds=limites_mapa,
         boundsOptions={"padding": [20, 20]},
-        style={'height': '100%', 'width': '100%', 'borderRadius': '8px', 'zIndex': 0, 'margin': 0, 'padding': 0}
+        style=map_style,
     )
-
-    return mapa

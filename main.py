@@ -25,9 +25,21 @@ app.index_string = """<!DOCTYPE html>
     <title>Balance Hídrico</title>
     {%favicon%}
     {%css%}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: system-ui, sans-serif; }
+      body {
+        margin: 0;
+        font-family: 'Segoe UI Variable', 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
+        background-color: #F3F6FA;
+        color: #1A1D1E;
+      }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: #F0F2F5; border-radius: 10px; }
+      ::-webkit-scrollbar-thumb { background: #C8D3DD; border-radius: 10px; }
+      ::-webkit-scrollbar-thumb:hover { background: #0078D4; transition: background 0.2s; }
+      .mantine-Paper-root { transition: box-shadow 0.15s ease; }
     </style>
   </head>
   <body>
@@ -145,35 +157,68 @@ def filtrar_df(df_base: pd.DataFrame, filtro: FiltroTablero) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Componente: tarjetas KPI
 # ---------------------------------------------------------------------------
-_COLORES_PERDIDAS = {"<15": "green", "15-30": "yellow", ">30": "red"}
+_ACCENTS = {
+    "blue":   {"color": "#0078D4", "bg_tint": "#EFF6FF", "border": "#C7E0F4", "icon_bg": "#0078D4"},
+    "green":  {"color": "#107C10", "bg_tint": "#F0FDF4", "border": "#BBF7D0", "icon_bg": "#107C10"},
+    "orange": {"color": "#D83B01", "bg_tint": "#FFF7ED", "border": "#FED7AA", "icon_bg": "#D83B01"},
+    "red":    {"color": "#C50F1F", "bg_tint": "#FEF2F2", "border": "#FCA5A5", "icon_bg": "#C50F1F"},
+}
+
 
 def _color_perdidas(pct: float) -> str:
     if pct > 30: return "red"
-    if pct > 15: return "yellow"
+    if pct > 15: return "orange"
     return "green"
 
 
 def tarjetas_kpi(indicadores: dict) -> dmc.SimpleGrid:
-    """Genera las 4 tarjetas de KPI con layout responsivo 2→4 columnas."""
-    def tarjeta(titulo, valor, color=None):
-        return dmc.Paper(
-            [
-                dmc.Text(titulo, c="dimmed", size="xs", fw=500),
-                dmc.Text(valor, fw=700, size="xl", c=color or "dark"),
-            ],
-            withBorder=True, shadow="xs", p="md", radius="md",
-            style={"textAlign": "center"},
-        )
+    """Genera las 4 tarjetas KPI estilo WinUI claro."""
+
+    def tarjeta(titulo, valor, acento="blue"):
+        a = _ACCENTS[acento]
+        return html.Div([
+            # Barra izquierda de color
+            html.Div(style={
+                "width": "4px",
+                "background": a["color"],
+                "position": "absolute", "top": 0, "left": 0, "bottom": 0,
+                "borderRadius": "10px 0 0 10px",
+            }),
+            html.Div([
+                # Etiqueta
+                html.Div(titulo, style={
+                    "fontSize": "11px", "fontWeight": "600",
+                    "color": "#5E5E5E",
+                    "textTransform": "uppercase", "letterSpacing": "0.7px",
+                    "marginBottom": "6px",
+                }),
+                # Valor grande
+                html.Div(valor, style={
+                    "fontSize": "28px", "fontWeight": "700",
+                    "color": a["color"],
+                    "lineHeight": "1.1",
+                }),
+            ], style={"paddingLeft": "4px"}),
+        ], style={
+            "background": "#FFFFFF",
+            "border": f"1px solid {a['border']}",
+            "borderRadius": "10px",
+            "padding": "16px 18px 16px 20px",
+            "position": "relative",
+            "overflow": "hidden",
+            "textAlign": "left",
+            "boxShadow": "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)",
+        })
 
     pct = indicadores["porcentaje_perdidas"]
     return dmc.SimpleGrid(
         cols={"base": 2, "sm": 4},
         spacing="sm",
         children=[
-            tarjeta("IPUF", f"{indicadores['ipuf']:,.2f}"),
-            tarjeta("% Pérdidas", f"{pct:,.1f}%", _color_perdidas(pct)),
-            tarjeta("Vol. Facturado (m³)", fmt_volumen(indicadores["volumen_facturado"])),
-            tarjeta("Vol. No Facturado (m³)", fmt_volumen(indicadores["volumen_anf"])),
+            tarjeta("IPUF",                   f"{indicadores['ipuf']:,.2f}",                    "blue"),
+            tarjeta("% Pérdidas",             f"{pct:,.1f}%",                                  _color_perdidas(pct)),
+            tarjeta("Vol. Facturado (m³)",    fmt_volumen(indicadores["volumen_facturado"]),    "green"),
+            tarjeta("Vol. No Facturado (m³)", fmt_volumen(indicadores["volumen_anf"]),          "orange"),
         ],
     )
 
@@ -182,22 +227,31 @@ def tarjetas_kpi(indicadores: dict) -> dmc.SimpleGrid:
 # Componente: panel de leyenda IPUF (estático)
 # ---------------------------------------------------------------------------
 def panel_leyenda() -> html.Div:
-    def item_leyenda(color, texto):
-        return dmc.Group([
+    def item_leyenda(color, texto, texto_color="#3A3A3A"):
+        return html.Div([
             html.Div(style={
-                "width": 12, "height": 12, "borderRadius": 2,
+                "width": 10, "height": 10, "borderRadius": "3px",
                 "backgroundColor": color, "flexShrink": 0,
+                "display": "inline-block", "marginRight": "6px",
+                "verticalAlign": "middle",
             }),
-            dmc.Text(texto, size="xs"),
-        ], gap="xs", align="center")
+            html.Span(texto, style={
+                "fontSize": "12px", "color": texto_color,
+                "fontWeight": "500", "verticalAlign": "middle",
+            }),
+        ], style={"display": "inline-flex", "alignItems": "center"})
 
     return html.Div([
-        dmc.Text("Leyenda del mapa", fw=700, size="xs", mb=4),
-        dmc.Group([
-            item_leyenda("#22c55e", "IPUF Bajo  (< 4)"),
-            item_leyenda("#eab308", "IPUF Medio (4–6)"),
-            item_leyenda("#ef4444", "IPUF Alto  (> 6)"),
-        ], gap="md"),
+        html.Div("Clasificación IPUF", style={
+            "fontSize": "11px", "fontWeight": "700", "color": "#0078D4",
+            "textTransform": "uppercase", "letterSpacing": "0.6px",
+            "marginBottom": "10px",
+        }),
+        html.Div([
+            item_leyenda("#107C10", "IPUF Bajo (< 4)"),
+            item_leyenda("#FF8C00", "IPUF Medio (4–6)"),
+            item_leyenda("#C50F1F", "IPUF Alto (> 6)"),
+        ], style={"display": "flex", "flexWrap": "wrap", "gap": "12px", "alignItems": "center"}),
     ])
 
 
@@ -205,9 +259,15 @@ def panel_leyenda() -> html.Div:
 # Layout
 # ---------------------------------------------------------------------------
 app.layout = dmc.MantineProvider(
-    dmc.AppShell(
-        header={"height": 80},
+    forceColorScheme="light",
+    theme={
+        "primaryColor": "blue",
+        "fontFamily": "'Segoe UI Variable', 'Segoe UI', 'Inter', system-ui, sans-serif",
+    },
+    children=[dmc.AppShell(
+        header={"height": 68},
         padding=0,
+        style={"background": "#F3F6FA"},
         children=[
             dcc.Store(id="store-filtros"),
             html.Div(
@@ -215,6 +275,7 @@ app.layout = dmc.MantineProvider(
                 children=crear_encabezado(filtro_actual=filtro_inicial, df=df),
             ),
             dmc.AppShellMain(
+                style={"background": "#F3F6FA"},
                 children=[
                     dmc.Container(
                         fluid=True,
@@ -225,28 +286,34 @@ app.layout = dmc.MantineProvider(
                             dcc.Loading(
                                 id="loading-kpi",
                                 type="dot",
-                                color="#228be6",
+                                color="#0078D4",
                                 children=html.Div(
                                     id="contenedor-indicadores",
                                     style={"marginBottom": "12px"},
                                 ),
                             ),
 
-                            # ── Fila 2: Mapa (50%) + Panel derecho (50%) ──
+                            # ── Fila 2: Mapa (40%) + Panel derecho (60%) ──
                             dmc.Grid(
                                 gutter="sm",
                                 children=[
-                                    # Mapa — la mitad del ancho
+                                    # Mapa
                                     dmc.GridCol(
-                                        html.Div(
-                                            id="contenedor-mapa",
-                                            children=generar_mapa_leaflet(gdf),
-                                            style={
-                                                "width": "100%", "height": "55vh",
-                                                "overflow": "hidden",
-                                                "position": "relative", "zIndex": 0,
-                                            },
-                                        ),
+                                        html.Div([
+                                            html.Div(id="contenedor-mapa",
+                                                     children=generar_mapa_leaflet(gdf),
+                                                     style={
+                                                         "width": "100%", "height": "55vh",
+                                                         "overflow": "hidden",
+                                                         "position": "relative", "zIndex": 0,
+                                                     }),
+                                        ], style={
+                                            "background": "#FFFFFF",
+                                            "border": "1px solid #E1E5EA",
+                                            "borderRadius": "10px",
+                                            "overflow": "hidden",
+                                            "boxShadow": "0 1px 3px rgba(0,0,0,0.06)",
+                                        }),
                                         span={"base": 12, "sm": 4},
                                     ),
                                     # Panel derecho: leyenda + tabla IWA
@@ -254,11 +321,15 @@ app.layout = dmc.MantineProvider(
                                         dmc.Paper(
                                             [
                                                 panel_leyenda(),
-                                                dmc.Divider(my="sm"),
-                                                dmc.Text(
-                                                    "Balance Hídrico IWA",
-                                                    fw=700, size="sm", mb="xs",
-                                                ),
+                                                dmc.Divider(my="sm",
+                                                            style={"borderColor": "#E1E5EA"}),
+                                                html.Div("Balance Hídrico IWA", style={
+                                                    "fontSize": "12px", "fontWeight": "700",
+                                                    "color": "#0078D4",
+                                                    "textTransform": "uppercase",
+                                                    "letterSpacing": "0.6px",
+                                                    "marginBottom": "10px",
+                                                }),
                                                 html.Div(
                                                     id="contenedor-tabla-iwa",
                                                     children=generar_tabla_iwa(df),
@@ -266,7 +337,11 @@ app.layout = dmc.MantineProvider(
                                             ],
                                             withBorder=True, shadow="xs",
                                             p="sm", radius="md",
-                                            style={"heinght": "45vh", "overflow": "auto"},
+                                            style={
+                                                "height": "55vh", "overflow": "auto",
+                                                "borderColor": "#E1E5EA",
+                                                "background": "#FFFFFF",
+                                            },
                                         ),
                                         span={"base": 12, "sm": 8},
                                     ),
@@ -275,23 +350,36 @@ app.layout = dmc.MantineProvider(
 
                             # ── Fila 3: Sankey ────────────────────────────
                             dmc.Paper(
-                                dcc.Loading(
-                                    id="loading-sankey",
-                                    type="dot",
-                                    color="#228be6",
-                                    children=html.Div(id="contenedor-sankey",
-                                                      children=generar_sankey(df)),
-                                ),
-                                withBorder=True, shadow="sm",
+                                [
+                                    html.Div("Diagrama de Flujo — Balance Hídrico", style={
+                                        "fontSize": "12px", "fontWeight": "700",
+                                        "color": "#0078D4",
+                                        "textTransform": "uppercase",
+                                        "letterSpacing": "0.6px",
+                                        "marginBottom": "8px",
+                                    }),
+                                    dcc.Loading(
+                                        id="loading-sankey",
+                                        type="dot",
+                                        color="#0078D4",
+                                        children=html.Div(id="contenedor-sankey",
+                                                          children=generar_sankey(df)),
+                                    ),
+                                ],
+                                withBorder=True, shadow="xs",
                                 p="md", radius="md",
                                 mt="sm", mb="xl",
+                                style={
+                                    "borderColor": "#E1E5EA",
+                                    "background": "#FFFFFF",
+                                },
                             ),
                         ],
                     )
                 ]
             ),
         ],
-    )
+    )]
 )
 
 
@@ -377,7 +465,7 @@ def actualizar_tablero(mes, aps, zona, sector, _n_clicks, click_feature):
     kpis = tarjetas_kpi(indicadores)
 
     # ── GeoJSON + viewport ───────────────────────────────────────────────
-    MAPA_COLORES = {"IPUF BAJO": "#22c55e", "IPUF MEDIO": "#eab308", "IPUF ALTO": "#ef4444"}
+    MAPA_COLORES = {"IPUF BAJO": "#107C10", "IPUF MEDIO": "#FF8C00", "IPUF ALTO": "#C50F1F"}
     sectores_filtrados = [
         str(s) for s in df_filtrado["sector_hidraulico"].unique() if s != "M"
     ]

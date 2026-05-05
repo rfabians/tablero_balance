@@ -6,14 +6,7 @@ from dash_iconify import DashIconify
 from models import FiltrosTablero
 
 
-_LOGO_URL = (
-    "https://www.acueducto.com.co/wps/portal/EAB2/Home/inicio/!ut/p/z1/"
-    "hY5BCsIwEEXP4iLb5pugqLtUpCKiVARrNhJrrJG2KWlqr2_AlVBxYBbz581j"
-    "qKQZlbV6mUJ5Y2tVhvksp5dpusR4BrZDegDSdL7nCT-yZMPp6R8gwxo_SiDc"
-    "ywFEID6wmAPJng0CX44NlUVpr593RX3ls4JKp-_aaRd1LsQP75t2QUDQ932k8"
-    "k7futzbKLdV6JA2LUFjnVclwUrEjGBtK01gapMbO-R92NbTbEhHmyrDc1K-tm"
-    "I0egOHroG0/images/logo-acueducto-2021.png"
-)
+_LOGO_URL = "/assets/logo-acueducto.png"
 
 
 def _get_val(val):
@@ -39,9 +32,9 @@ def crear_encabezado(
     filtro_actual: FiltrosTablero,
     df: pd.DataFrame,
     titulo: str = "Balance Hídrico",
-    color_fondo: str = "#001529",
+    color_fondo: str = "#FFFFFF",
 ) -> dmc.AppShellHeader:
-    """Retorna el AppShellHeader con filtros y branding de EAAB."""
+    """Retorna el AppShellHeader con filtros y branding de EAAB — estilo WinUI claro."""
 
     # Aplicar filtros activos para calcular opciones disponibles
     df_fil = df
@@ -68,7 +61,9 @@ def crear_encabezado(
         "sector_hidraulico", filtro_actual.sector,
     )
 
-    select_style = {"minWidth": 130, "maxWidth": 190, "flex": "1 1 130px"}
+    select_style = {
+        "minWidth": 120, "maxWidth": 180, "flex": "1 1 120px",
+    }
 
     filtros = dmc.Group(
         gap="xs",
@@ -81,8 +76,9 @@ def crear_encabezado(
                 allowDeselect=False,
                 value=_get_val(filtro_actual.mes),
                 data=meses_opc,
-                size="sm", variant="filled", radius="md",
+                size="sm", variant="default", radius="md",
                 style=select_style,
+                leftSection=DashIconify(icon="tabler:calendar", height=15, color="#0078D4"),
             ),
             dmc.Select(
                 id="filtro-aps",
@@ -90,8 +86,9 @@ def crear_encabezado(
                 clearable=True,
                 value=_get_val(filtro_actual.aps),
                 data=aps_opc,
-                size="sm", variant="filled", radius="md",
+                size="sm", variant="default", radius="md",
                 style=select_style,
+                leftSection=DashIconify(icon="tabler:building", height=15, color="#107C10"),
             ),
             dmc.Select(
                 id="filtro-zona",
@@ -99,8 +96,9 @@ def crear_encabezado(
                 clearable=True,
                 value=_get_val(filtro_actual.zona),
                 data=zonas_opc,
-                size="sm", variant="filled", radius="md",
+                size="sm", variant="default", radius="md",
                 style=select_style,
+                leftSection=DashIconify(icon="tabler:map-pin", height=15, color="#D83B01"),
             ),
             dmc.Select(
                 id="filtro-sector",
@@ -108,17 +106,19 @@ def crear_encabezado(
                 clearable=True,
                 value=_get_val(filtro_actual.sector),
                 data=sectores_opc,
-                size="sm", variant="filled", radius="md",
+                size="sm", variant="default", radius="md",
                 style=select_style,
+                leftSection=DashIconify(icon="tabler:hexagon", height=15, color="#0078D4"),
             ),
             dmc.Button(
                 "Limpiar",
                 id="btn-limpiar-filtros",
-                variant="white",
-                color="dark",
-                size="xs",
-                leftSection=DashIconify(icon="tabler:filter-cancel", height=16, color=color_fondo),
-                style={"flexShrink": 0},
+                variant="light",
+                color="blue",
+                size="sm",
+                radius="md",
+                leftSection=DashIconify(icon="tabler:filter-off", height=15),
+                style={"flexShrink": 0, "fontWeight": "600", "fontSize": "13px"},
             ),
         ],
     )
@@ -131,40 +131,64 @@ def crear_encabezado(
             px="md",
             wrap="nowrap",
             children=[
-                # Branding (nunca se encoge en mobile)
+                # Branding
                 dmc.Group(
                     gap="sm",
                     align="center",
                     wrap="nowrap",
                     style={"flexShrink": 0},
                     children=[
-                        html.Img(src=_LOGO_URL, style={"height": 38, "width": "auto"}),
+                        html.Div(
+                            html.Img(src=_LOGO_URL, style={
+                                "height": 36, "width": "auto",
+                                "display": "block",
+                            }),
+                            style={
+                                "background": "#0D2240",
+                                "borderRadius": "8px",
+                                "padding": "5px 10px",
+                                "lineHeight": 0,
+                            },
+                        ),
+                        html.Div(style={
+                            "width": "1px", "height": "32px",
+                            "background": "#E1E5EA", "margin": "0 4px",
+                        }),
                         dmc.Stack(
-                            gap=1,
+                            gap=2,
                             align="flex-start",
                             children=[
-                                dmc.Text(titulo, c="white", fw=700, size="md"),
-                                # Subtítulo oculto en mobile para ahorrar espacio
+                                dmc.Text(
+                                    titulo,
+                                    fw=700,
+                                    size="md",
+                                    style={"color": "#0078D4", "letterSpacing": "0.3px"},
+                                ),
                                 dmc.Text(
                                     "Gerencia Corporativa Analítica y Pérdidas",
-                                    c="white", fw=300, size="xs",
+                                    fw=400,
+                                    size="xs",
+                                    style={"color": "#5E5E5E"},
                                     visibleFrom="sm",
                                 ),
                             ],
                         ),
                     ],
                 ),
-                # Filtros: scroll horizontal en mobile, inline en desktop
+                # Filtros
                 dmc.ScrollArea(
                     type="never",
                     style={"flex": 1, "minWidth": 0},
                     children=html.Div(
                         filtros,
-                        style={"paddingLeft": 10, "paddingRight": 4},
+                        style={"paddingLeft": 16, "paddingRight": 4},
                     ),
                 ),
             ],
         ),
         bg=color_fondo,
-        style={"borderBottom": "none"},
+        style={
+            "borderBottom": "1px solid #E1E5EA",
+            "boxShadow": "0 1px 4px rgba(0,0,0,0.06)",
+        },
     )
