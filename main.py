@@ -70,12 +70,8 @@ def normalizar_lista(valor):
 
 
 def fmt_volumen(v: float) -> str:
-    """Formatea un volumen en m³ con sufijo M/k para legibilidad."""
-    if v >= 1_000_000:
-        return f"{v / 1_000_000:,.2f} M"
-    if v >= 1_000:
-        return f"{v / 1_000:,.1f} k"
-    return f"{v:,.1f}"
+    """Formatea un volumen en M m³ con 3 decimales."""
+    return f"{v / 1_000_000:,.3f} M"
 
 
 def calcular_indicadores(df_datos: pd.DataFrame) -> dict:
@@ -189,7 +185,7 @@ def tarjetas_kpi(indicadores: dict) -> dmc.SimpleGrid:
                 html.Div(titulo, style={
                     "fontSize": "11px", "fontWeight": "600",
                     "color": "#5E5E5E",
-                    "textTransform": "uppercase", "letterSpacing": "0.7px",
+                    "letterSpacing": "0.7px",
                     "marginBottom": "6px",
                 }),
                 # Valor grande
@@ -215,10 +211,10 @@ def tarjetas_kpi(indicadores: dict) -> dmc.SimpleGrid:
         cols={"base": 2, "sm": 4},
         spacing="sm",
         children=[
-            tarjeta("IPUF",                   f"{indicadores['ipuf']:,.2f}",                    "blue"),
-            tarjeta("% Pérdidas",             f"{pct:,.1f}%",                                  _color_perdidas(pct)),
-            tarjeta("Vol. Facturado (m³)",    fmt_volumen(indicadores["volumen_facturado"]),    "green"),
-            tarjeta("Vol. No Facturado (m³)", fmt_volumen(indicadores["volumen_anf"]),          "orange"),
+            tarjeta("IPUF",                      f"{indicadores['ipuf']:,.2f}",                 "blue"),
+            tarjeta("% PÉRDIDAS",               f"{pct:,.1f}%",                                _color_perdidas(pct)),
+            tarjeta("VOL. FACTURADO (M m³)",    fmt_volumen(indicadores["volumen_facturado"]), "green"),
+            tarjeta("VOL. NO FACTURADO (M m³)", fmt_volumen(indicadores["volumen_anf"]),       "orange"),
         ],
     )
 
@@ -415,10 +411,16 @@ def mostrar_tooltip(hover_data):
     prevent_initial_call=False,
 )
 def actualizar_tablero(mes, aps, zona, sector, _n_clicks, click_feature):
+    global df, gdf, MES_MAXIMO
     trigger = ctx.triggered_id
 
     # ── Construir nuevo filtro ────────────────────────────────────────────
     if trigger == "btn-limpiar-filtros":
+        df_recargado, gdf_recargado = obtener_datos(FiltroTablero())
+        if df_recargado is not None:
+            df = df_recargado
+            gdf = gdf_recargado
+            MES_MAXIMO = max(m for m in df["mescalculo"].unique() if m != "M")
         nuevo_filtro = FiltroTablero(mes=normalizar_lista(MES_MAXIMO))
     else:
         if trigger == "capa-sectores-leaflet" and click_feature:

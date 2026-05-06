@@ -37,11 +37,7 @@ _ANF_N0_TXT  = "#FFFFFF"
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _fmt(v: float) -> str:
-    if v >= 1_000_000:
-        return f"{v / 1_000_000:,.2f} M m³"
-    if v >= 1_000:
-        return f"{v / 1_000:,.1f} k m³"
-    return f"{v:,.0f} m³"
+    return f"{v / 1_000_000:,.3f} M m³"
 
 
 def _td(titulo: str, valor: str, bg: str, text_color: str = "#1A1D1E",

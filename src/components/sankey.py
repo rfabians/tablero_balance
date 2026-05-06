@@ -52,9 +52,7 @@ def _lighten(hex_color: str, amount: float) -> str:
 _JS_FORMATTERS = r"""
 // ── helpers ───────────────────────────────────────────────────────────────
 function fmtVal(v) {
-    if (v >= 1e6) return (v / 1e6).toFixed(2) + ' M m\u00b3';
-    if (v >= 1e3) return (v / 1e3).toFixed(1) + ' k m\u00b3';
-    return v.toFixed(0) + ' m\u00b3';
+    return (v / 1e6).toFixed(3) + ' M m\u00b3';
 }
 function fmtPct(v) {
     if (volTotal <= 0) return '—';
@@ -82,8 +80,8 @@ option.tooltip.formatter = function(params) {
         var ev  = params.data.value;
         var src = truncate(params.data.source, 36);
         var tgt = truncate(params.data.target, 36);
-        return '<div style="' + S + 'min-width:220px;max-width:320px">'
-             + '<div style="font-size:11px;color:#5E5E5E;margin-bottom:5px">'
+        return '<div style="' + S + 'min-width:220px;max-width:320px;word-break:break-word;overflow-wrap:break-word">'
+             + '<div style="font-size:11px;color:#5E5E5E;margin-bottom:5px;white-space:normal;word-break:break-word">'
              +     src + ' &rarr; ' + tgt
              + '</div>'
              + '<div style="font-size:17px;font-weight:700;color:#1A1D1E;line-height:1.2">'
@@ -105,10 +103,11 @@ option.tooltip.formatter = function(params) {
     var pctNum   = volTotal > 0 ? val / volTotal * 100 : 0;
     var badgeClr = pctNum >= 40 ? '#0078D4' : pctNum >= 15 ? '#107C10' : '#D83B01';
 
-    var html = '<div style="' + S + 'min-width:270px;max-width:360px">'
+    var html = '<div style="' + S + 'min-width:270px;max-width:360px;word-break:break-word;overflow-wrap:break-word">'
              // cabecera
              + '<div style="font-weight:700;font-size:14px;color:#1A1D1E;'
-             +   'border-bottom:2px solid ' + badgeClr + ';padding-bottom:7px;margin-bottom:9px">'
+             +   'border-bottom:2px solid ' + badgeClr + ';padding-bottom:7px;margin-bottom:9px;'
+             +   'white-space:normal;word-break:break-word;overflow-wrap:break-word">'
              +   name
              + '</div>'
              // fila volumen + porcentaje
