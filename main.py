@@ -513,5 +513,4 @@ def actualizar_tablero(mes, aps, zona, sector, _n_clicks, click_feature):
 server = app.server
 
 if __name__ == "__main__":
-    # Debug
     app.run(debug=True)
