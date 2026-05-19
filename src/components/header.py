@@ -21,7 +21,7 @@ def _opciones_filtro(df_filtrado: pd.DataFrame, columna: str, valor_actual) -> l
     Devuelve opciones únicas de una columna (sin 'M'),
     garantizando que el valor actualmente seleccionado esté incluido.
     """
-    opciones = sorted(str(v) for v in df_filtrado[columna].unique() if v != "M")
+    opciones = sorted(str(v) for v in df_filtrado[columna].unique() if v != "M" and str(v) != "nan")
     val = _get_val(valor_actual)
     if val and val != "M" and val not in opciones:
         opciones.append(val)
