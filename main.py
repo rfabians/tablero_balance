@@ -84,13 +84,16 @@ def calcular_indicadores(df_datos: pd.DataFrame) -> dict:
         }
 
     vol = df_datos.groupby("nivel0")["volumen"].sum()
+    vol_nivel1 = df_datos.groupby("nivel1")["volumen"].sum()
     volumen_anf      = vol.get("AGUA NO FACTURADA", 0)
     volumen_facturado = vol.get("AGUA FACTURADA", 0)
+    vol_perdidas = vol_nivel1.get("PÉRDIDAS", 0)
     total_suscriptores = df_datos["suscriptores"].sum() if "suscriptores" in df_datos.columns else 0
 
     ipuf = volumen_anf / total_suscriptores if total_suscriptores > 0 else 0
     volumen_total = volumen_anf + volumen_facturado
-    porcentaje_perdidas = (volumen_anf / volumen_total * 100) if volumen_total > 0 else 0
+    porcentaje_ianc = (volumen_anf / volumen_total * 100) if volumen_total > 0 else 0
+    porcentaje_perdidas_v = (vol_perdidas / volumen_total * 100)
 
     if ipuf < 4:
         rango_ipuf = "IPUF BAJO"
@@ -105,7 +108,8 @@ def calcular_indicadores(df_datos: pd.DataFrame) -> dict:
         "total_suscriptores": total_suscriptores,
         "ipuf": ipuf,
         "rango_ipuf": rango_ipuf,
-        "porcentaje_perdidas": porcentaje_perdidas,
+        "porcentaje_perdidas": porcentaje_perdidas_v,
+        "porcentaje_ianc": porcentaje_ianc,
     }
 
 
@@ -206,13 +210,14 @@ def tarjetas_kpi(indicadores: dict) -> dmc.SimpleGrid:
             "boxShadow": "0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)",
         })
 
-    pct = indicadores["porcentaje_perdidas"]
+    pct = indicadores["porcentaje_ianc"]
     return dmc.SimpleGrid(
-        cols={"base": 2, "sm": 4},
+        cols={"base": 2, "sm": 5},
         spacing="sm",
         children=[
             tarjeta("IPUF",                      f"{indicadores['ipuf']:,.2f}",                 "blue"),
-            tarjeta("% PÉRDIDAS",               f"{pct:,.1f}%",                                _color_perdidas(pct)),
+            tarjeta("IANC/NRW",               f"{pct:,.1f}%",                                _color_perdidas(pct)),
+            tarjeta("% Pérdidas", f"{indicadores['porcentaje_perdidas']:,.1f}%", _color_perdidas(indicadores["porcentaje_perdidas"])),
             tarjeta("VOL. FACTURADO (M m³)",    fmt_volumen(indicadores["volumen_facturado"]), "green"),
             tarjeta("VOL. NO FACTURADO (M m³)", fmt_volumen(indicadores["volumen_anf"]),       "orange"),
         ],
