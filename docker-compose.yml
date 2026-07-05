@@ -2,9 +2,9 @@ services:
 
   app:
     build: .
-    container_name: tablero_balance_app
+    container_name: tablero_balance_app_pruebas
     restart: unless-stopped
     ports:
-      - "8050:8050"
+      - "8051:8050"
     env_file:
       - .env

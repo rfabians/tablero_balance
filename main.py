@@ -110,6 +110,7 @@ def calcular_indicadores(df_datos: pd.DataFrame) -> dict:
         "rango_ipuf": rango_ipuf,
         "porcentaje_perdidas": porcentaje_perdidas_v,
         "porcentaje_ianc": porcentaje_ianc,
+        "volumen_total": volumen_total,
     }
 
 
@@ -212,12 +213,13 @@ def tarjetas_kpi(indicadores: dict) -> dmc.SimpleGrid:
 
     pct = indicadores["porcentaje_ianc"]
     return dmc.SimpleGrid(
-        cols={"base": 2, "sm": 5},
+        cols={"base": 2, "sm": 6},
         spacing="sm",
         children=[
             tarjeta("IPUF",                      f"{indicadores['ipuf']:,.2f}",                 "blue"),
             tarjeta("IANC/NRW",               f"{pct:,.1f}%",                                _color_perdidas(pct)),
             tarjeta("% Pérdidas", f"{indicadores['porcentaje_perdidas']:,.1f}%", _color_perdidas(indicadores["porcentaje_perdidas"])),
+            tarjeta("VOL. SUMINISTRADO (M m³)", fmt_volumen(indicadores["volumen_total"]), "blue"),
             tarjeta("VOL. FACTURADO (M m³)",    fmt_volumen(indicadores["volumen_facturado"]), "green"),
             tarjeta("VOL. NO FACTURADO (M m³)", fmt_volumen(indicadores["volumen_anf"]),       "orange"),
         ],
@@ -304,7 +306,7 @@ app.layout = dmc.MantineProvider(
                                             html.Div(id="contenedor-mapa",
                                                      children=generar_mapa_leaflet(gdf),
                                                      style={
-                                                         "width": "100%", "height": "55vh",
+                                                         "width": "100%", "height": "73vh",
                                                          "overflow": "hidden",
                                                          "position": "relative", "zIndex": 0,
                                                      }),
@@ -334,12 +336,16 @@ app.layout = dmc.MantineProvider(
                                                 html.Div(
                                                     id="contenedor-tabla-iwa",
                                                     children=generar_tabla_iwa(df),
+                                                    style={
+                                                    "height": "calc(73vh - 140px)", # <-- Forzamos al contenedor a medir el resto del Paper
+                                                    "width": "100%"
+                                                }
                                                 ),
                                             ],
                                             withBorder=True, shadow="xs",
                                             p="sm", radius="md",
                                             style={
-                                                "height": "55vh", "overflow": "auto",
+                                                "height": "73vh", "overflow": "auto",
                                                 "borderColor": "#E1E5EA",
                                                 "background": "#FFFFFF",
                                             },
